@@ -1,0 +1,22 @@
+{
+  "name": "gemini-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Professional WhatsApp Bot with Web Dashboard",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "express": "^4.18.2",
+    "pino": "^8.19.0",
+    "fs-extra": "^11.1.1",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=16.x"
+  },
+  "author": "Gemini AI User",
+  "license": "MIT"
+}
