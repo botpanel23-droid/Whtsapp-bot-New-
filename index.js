@@ -1,56 +1,94 @@
 const { 
     makeWASocket, 
     useMultiFileAuthState, 
-    delay, 
-    DisconnectReason 
+    DisconnectReason, 
+    delay 
 } = require("@whiskeysockets/baileys");
 const fs = require('fs');
 const pino = require('pino');
+const express = require('express');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Settings Load කිරීම
+if (!fs.existsSync('./settings.json')) {
+    fs.writeFileSync('./settings.json', JSON.stringify({ auto_status_view: true, auto_react: true }));
+}
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // QR ඕන නෑ
-        logger: pino({ level: 'silent' })
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
-    // --- Pairing Code එක ලබාගැනීම ---
+    // Pairing Code එක ඉල්ලීම (Render එකේදී Error එක එන තැන)
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "947XXXXXXXX"; // මෙතනට ඔබේ අංකය දාන්න
-        setTimeout(async () => {
+        const phoneNumber = "94742271802"; // ඔබේ අංකය මෙතනට දාන්න
+        console.log("Requesting Pairing Code...");
+        await delay(5000); // සර්වර් එක Connect වෙනකම් පොඩි වෙලාවක් ඉන්න
+        try {
             let code = await sock.requestPairingCode(phoneNumber);
-            console.log(`\n👉 ඔබේ LOGIN CODE එක: ${code}\n`);
-        }, 3000);
+            console.log(`\n\n👉 YOUR LOGIN CODE: ${code}\n\n`);
+        } catch (err) {
+            console.error("Pairing Code Error: ", err.message);
+        }
     }
 
     sock.ev.on('creds.update', saveCreds);
 
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting...', shouldReconnect);
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log('✅ WhatsApp Connected Successfully!');
+        }
+    });
+
+    // Status View & Auto Reply Logic
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message) return;
         const from = msg.key.remoteJid;
-        const body = msg.message.conversation || msg.message.extendedTextMessage?.text;
-        const isStatus = from === 'status@broadcast';
+        const settings = JSON.parse(fs.readFileSync('./settings.json'));
 
-        // 1. Auto Status View & Like (React)
-        if (isStatus) {
-            await sock.readMessages([msg.key]); // Status View
-            await sock.sendMessage(from, { react: { text: '🔥', key: msg.key } }, { statusJidList: [msg.key.participant] });
-            return;
-        }
-
-        // --- වට්සැප් එක උඩුයටිකුරු කරන Commands ---
-        if (body === '.menu') {
-            await sock.sendMessage(from, { text: `🚀 *GEMINI ADVANCED BOT*\n\n1. .tagall - ඔක්කොටම මැසේජ් එක යවන්න\n2. .hidetag - හොරෙන් ටැග් කරන්න\n3. .antilink - ලින්ක් බ්ලොක් කරන්න\n4. .clone - වෙන කෙනෙක් වගේ රිප්ලයි කරන්න` });
-        }
-
-        if (body === '.tagall') {
-            const groupMetadata = await sock.groupMetadata(from);
-            const participants = groupMetadata.participants.map(i => i.id);
-            await sock.sendMessage(from, { text: "📢 අවධානය පිණිසයි!", mentions: participants });
+        if (from === 'status@broadcast' && settings.auto_status_view) {
+            await sock.readMessages([msg.key]);
+            if (settings.auto_react) {
+                await sock.sendMessage(from, { react: { text: '🔥', key: msg.key } }, { statusJidList: [msg.key.participant] });
+            }
         }
     });
 }
 
+// --- Dashboard UI ---
+app.get('/', (req, res) => {
+    res.send(`
+        <html>
+        <head>
+            <title>Bot Dashboard</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+        </head>
+        <body class="bg-gray-900 text-white flex items-center justify-center h-screen">
+            <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl border border-blue-500">
+                <h1 class="text-2xl font-bold text-blue-400 mb-4">Gemini Bot Control</h1>
+                <p class="mb-4">Status: <span class="text-green-400 font-bold">Bot Engine Running</span></p>
+                <div class="space-y-2">
+                    <button class="w-full bg-blue-600 p-2 rounded">Auto Status: ON</button>
+                    <button class="w-full bg-purple-600 p-2 rounded">Auto Like: ON</button>
+                </div>
+            </div>
+        </body>
+        </html>
+    `);
+});
+
+app.listen(PORT, () => console.log(`Dashboard running on port ${PORT}`));
 startBot();
